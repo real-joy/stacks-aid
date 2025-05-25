@@ -204,3 +204,83 @@
     )
   )
 )
+
+;; Get donation details by ID
+(define-read-only (get-donation-by-id (donation-id uint))
+  (match (map-get? donations { id: donation-id })
+    donation (ok donation)
+    ERR-NOT-FOUND
+  )
+)
+
+;; Get total number of donations
+(define-read-only (get-donation-count)
+  (ok (var-get donation-count))
+)
+
+;; Fund Utilization Tracking
+
+;; Add a new fund utilization milestone (admin only)
+(define-public (add-utilization
+    (beneficiary-id uint)
+    (description (string-utf8 255))
+    (amount uint)
+  )
+  (let ((beneficiary (unwrap! (get-beneficiary beneficiary-id) ERR-BENEFICIARY-NOT-FOUND)))
+    (if (and
+        (is-authorized tx-sender ROLE-ADMIN)
+        (> (len description) u0)
+        (> amount u0)
+        (< beneficiary-id (var-get beneficiary-count))
+      )
+      ;; Check if beneficiary-id is valid
+      (let (
+          (milestone (+ (get-last-milestone beneficiary-id) u1))
+          (utilization-id (+ (var-get utilization-count) u1))
+        )
+        (begin
+          (map-set utilization { id: utilization-id } {
+            beneficiary-id: beneficiary-id,
+            milestone: milestone,
+            description: description,
+            amount: amount,
+            status: "pending",
+          })
+          (var-set utilization-count utilization-id)
+          (ok milestone)
+        )
+      )
+      ERR-INVALID-INPUT
+    )
+  )
+)
+
+;; Approve a fund utilization milestone (admin only)
+(define-public (approve-utilization
+    (beneficiary-id uint)
+    (milestone uint)
+  )
+  (let (
+      (utilization-entry (unwrap! (map-get? utilization { id: milestone }) ERR-UTILIZATION-NOT-FOUND))
+      (beneficiary (unwrap! (get-beneficiary beneficiary-id) ERR-BENEFICIARY-NOT-FOUND))
+    )
+    (if (and
+        (is-authorized tx-sender ROLE-ADMIN)
+        (is-eq (get beneficiary-id utilization-entry) beneficiary-id)
+        (< beneficiary-id (var-get beneficiary-count)) ;; Check if beneficiary-id is valid
+        (< milestone (var-get utilization-count))
+      )
+      ;; Check if milestone is valid
+      (if (<= (get amount utilization-entry) (get received-amount beneficiary))
+        (begin
+          (map-set utilization { id: milestone }
+            (merge utilization-entry { status: "approved" })
+          )
+          (ok true)
+        )
+        ERR-INSUFFICIENT-FUNDS
+      )
+      ERR-NOT-AUTHORIZED
+    )
+  )
+)
