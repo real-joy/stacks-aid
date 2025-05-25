@@ -59,3 +59,74 @@
     timestamp: uint,
   }
 )
+
+;; Fund utilization tracking
+(define-map utilization
+  { id: uint }
+  {
+    beneficiary-id: uint,
+    milestone: uint,
+    description: (string-utf8 255),
+    amount: uint,
+    status: (string-ascii 20),
+  }
+)
+
+;; Counters for IDs
+(define-data-var beneficiary-count uint u0)
+(define-data-var donation-count uint u0)
+(define-data-var utilization-count uint u0)
+
+;; Helper Functions
+
+;; Check if a user has the required role or higher
+(define-private (is-authorized
+    (user principal)
+    (required-role uint)
+  )
+  (let ((role-data (default-to { role: u0 } (map-get? roles { user: user }))))
+    (>= (get role role-data) required-role)
+  )
+)
+
+;; Get the latest milestone for a beneficiary
+(define-private (get-last-milestone (beneficiary-id uint))
+  (var-get utilization-count)
+)
+
+;; Role Management
+
+;; Assign a role to a user (admin only)
+(define-public (set-role
+    (user principal)
+    (new-role uint)
+  )
+  (let ((existing-role (default-to u0 (get role (map-get? roles { user: user })))))
+    (if (and
+        (is-eq tx-sender (var-get contract-owner))
+        (<= new-role ROLE-BENEFICIARY)
+        (not (is-eq user tx-sender)) ;; Ensure user is not setting their own role
+        (or
+          (is-eq new-role ROLE-ADMIN)
+          (is-eq new-role ROLE-MODERATOR)
+          (is-eq new-role ROLE-BENEFICIARY)
+        )
+      )
+      (ok (map-set roles { user: user } { role: new-role }))
+      ERR-NOT-AUTHORIZED
+    )
+  )
+)
+
+;; Remove a role from a user (admin only)
+(define-public (remove-role (user principal))
+  (if (and
+      (is-eq tx-sender (var-get contract-owner))
+      (is-some (map-get? roles { user: user }))
+      (not (is-eq user tx-sender))
+    )
+    ;; Ensure user is not removing their own role
+    (ok (map-delete roles { user: user }))
+    ERR-NOT-AUTHORIZED
+  )
+)
